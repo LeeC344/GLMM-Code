@@ -13,6 +13,7 @@ library(tibble)
 library(DHARMa)
 library(tidyverse)
 library(lme4)
+library(lmtest)
 
 rm(list=ls())
 
@@ -133,17 +134,60 @@ mGlobal = glmer(delta_use ~ sal_logger1_z + sal_logger3_z +
                   temp_mean_z + stage_ft_z + (1|fish_id),
                 family=binomial, data=fish_day_model)
 
+summary(mGlobal)
 
 
-# 1. Run simulations on your fitted glmer model
-simRes <- simulateResiduals(fittedModel = mGlobal)
 
-# 2. Plot the main diagnostic panel (QQ plot and residuals vs. predicted)
-plot(simRes)
+#Run simulations on your fitted glmer model
+simRes <- simulateResiduals(fittedModel = mGlobal, n=1000)
+
+#Combining the residuals with the date and fish ID 
+resids = data.frame('resids'=simRes$scaledResiduals,
+                  'date'=fish_day_model$date,
+                  'fish'=fish_day_model$fish_id)
+
+#Counting how many observations there are per fish
+fishNames = fish_day_model |> 
+  group_by(fish_id) |> 
+  summarise(count = n()) |> 
+  ungroup() |> 
+  arrange(desc(count))
+
+#Now I'm running a Durbin-Watson test to look for autocorrelation in
+#residuals of each of the first 18 fish - I picked the first 18
+#pseudo-arbitrarily, because they all had at least 100 observations
+
+autocorrResults = rep(NA, 18)
+
+for(i in 1:18){
+  tmp = resids |> 
+    filter(fish==fishNames$fish_id[i]) |> 
+    arrange(date)
+  tmpDates = data.frame(date = seq(min(tmp$date), max(tmp$date), 1))
+  tmp = tmpDates |> 
+    left_join(tmp, by='date') |> 
+    arrange(date)
+  
+  test = dwtest(tmp$resids ~ tmp$date)
+  
+  autocorrResults[i] = test$p.value
+}
+
+tmp = data.frame(autocorrResults = autocorrResults)
+
+ggplot(tmp, aes(x=autocorrResults))+
+  geom_histogram(fill='gray', color='black',
+                 breaks=seq(0, 1, 0.025))+
+  theme_bw()+
+  geom_vline(xintercept=0.05, color='red')
 
 
-# Test for temporal autocorrelation
-testTemporalAutocorrelation(simulationOutput = simRes, time = date)
+#For 61% of your fish in which you have at least 100 observations, there
+#is statistical evidence of temporal autocorrelation at a time lag of 1 day.
+mean(tmp$autocorrResults < 0.05)
+
+
+
 
 
 
