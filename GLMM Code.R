@@ -11,11 +11,16 @@ library(performance)
 library(MuMIn)
 library(tibble)
 library(DHARMa)
+library(tidyverse)
+library(lme4)
+
+rm(list=ls())
 
 #Load in Data
-combined_detections<- readRDS("D:/Colby Drive/Analysis/Actel/combined_actel_detections.rds")
+combined_detections<- readRDS("combined_actel_detections.rds")
 
-env_model<- read.csv("D:/Colby Drive/Data/Salinity/env_model_daily.csv")
+env_model<- read.csv("env_model_daily.csv") %>% 
+  mutate(date = as.Date(date))
 
 
 #Filter Detections to Sal/Temp Logger deployments
@@ -105,6 +110,41 @@ fish_day_model %>%
     first_date = min(date),
     last_date = max(date)
   )
+
+
+#-----------------------------------------------------
+#Exploring this fish_day_model data frame
+#-----------------------------------------------------
+length(unique(fish_day_model$fish_id)) #130 unique fish
+length(unique(fish_day_model$date)) #284 unique days
+
+tmp = fish_day_model %>% 
+  group_by(fish_id, date) %>% 
+  summarise(count=n()) %>% 
+  ungroup()
+
+#Ok, so it appears as though there is only one observation per fish per day
+
+#--------------------------------------------------------------------------
+#Jonathon's glmm
+#--------------------------------------------------------------------------
+
+mGlobal = glmer(delta_use ~ sal_logger1_z + sal_logger3_z +
+                  temp_mean_z + stage_ft_z + (1|fish_id),
+                family=binomial, data=fish_day_model)
+
+
+
+# 1. Run simulations on your fitted glmer model
+simRes <- simulateResiduals(fittedModel = mGlobal)
+
+# 2. Plot the main diagnostic panel (QQ plot and residuals vs. predicted)
+plot(simRes)
+
+
+# Test for temporal autocorrelation
+testTemporalAutocorrelation(simulationOutput = simRes, time = date)
+
 
 
 
